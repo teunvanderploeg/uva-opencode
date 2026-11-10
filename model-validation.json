@@ -1,0 +1,87 @@
+{
+  "checked_at": "2026-11-10T15:51:33.756576+00:00",
+  "source": "Signed-in UvA AI Chat model selector, including legacy models",
+  "mode": "prompt",
+  "results": [
+    {
+      "model": "ai-smart-router-claude",
+      "chat_and_json_transport": "passed"
+    },
+    {
+      "model": "ai-smart-router-gpt",
+      "chat_and_json_transport": "passed"
+    },
+    {
+      "model": "claude-sonnet-5.5",
+      "chat_and_json_transport": "passed"
+    },
+    {
+      "model": "gpt-6-luna",
+      "chat_and_json_transport": "passed"
+    },
+    {
+      "model": "gpt-6.1-sol",
+      "chat_and_json_transport": "passed"
+    },
+    {
+      "model": "gpt-6.1-terra",
+      "chat_and_json_transport": "passed"
+    },
+    {
+      "model": "claude-haiku-4.5",
+      "chat_and_json_transport": "failed",
+      "error": "{\"error\": {\"message\": \"UvA returned an error event.\", \"type\": \"uva_bridge_error\"}}"
+    },
+    {
+      "model": "claude-sonnet-4.6",
+      "chat_and_json_transport": "passed"
+    },
+    {
+      "model": "claude-sonnet-5",
+      "chat_and_json_transport": "failed",
+      "error": "{\"error\": {\"message\": \"UvA returned an error event.\", \"type\": \"uva_bridge_error\"}}"
+    },
+    {
+      "model": "gpt-4.1",
+      "chat_and_json_transport": "passed",
+      "note": "Response marker had a trailing period. Chat and JSON transport worked."
+    },
+    {
+      "model": "gpt-4o",
+      "chat_and_json_transport": "passed"
+    },
+    {
+      "model": "gpt-5",
+      "chat_and_json_transport": "passed"
+    },
+    {
+      "model": "gpt-5-mini",
+      "chat_and_json_transport": "passed",
+      "note": "Passed on focused recheck."
+    },
+    {
+      "model": "gpt-5-nano",
+      "chat_and_json_transport": "passed"
+    },
+    {
+      "model": "gpt-5.1",
+      "chat_and_json_transport": "passed"
+    },
+    {
+      "model": "gpt-5.6-luna",
+      "chat_and_json_transport": "passed"
+    },
+    {
+      "model": "gpt-5.6-terra",
+      "chat_and_json_transport": "passed"
+    },
+    {
+      "model": "gpt-oss-120b",
+      "chat_and_json_transport": "passed"
+    },
+    {
+      "model": "mistral-small-3.2",
+      "chat_and_json_transport": "passed"
+    }
+  ]
+}

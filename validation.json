@@ -1,0 +1,95 @@
+{
+  "date": "2026-11-10",
+  "opencode_version": "2.2.5",
+  "browser": "Firefox",
+  "model": "gpt-6-luna",
+  "upstream": "/api/v1/chat/generic",
+  "authentication": "Signed-in browser fetch; no UvA cookie exported",
+  "normal_chat": "passed",
+  "native_tools": "required client tool call was not returned",
+  "emulated_tool_round_trip": "passed; verification value generated after tool request",
+  "opencode_exit_code": 0,
+  "opencode_completed_tools": [
+    "read",
+    "patch"
+  ],
+  "opencode_output_matches_random_input": true,
+  "opencode_final_text": "TEST_COMPLETE",
+  "test_project": "disposable; removed after verification",
+  "quota_or_official_support_confirmed": false,
+  "automatic_start": {
+    "tampermonkey_version": "5.5.0",
+    "userscript_version": "0.2.1",
+    "installation_approved_and_completed": true,
+    "launcher_starts_bridge": true,
+    "reconnect_after_page_reload_and_bridge_restart": true,
+    "opencode_read_and_patch_through_installed_userscript": "passed",
+    "offline_python_tests": 15,
+    "offline_userscript_tests": 3
+  },
+  "model_selection": {
+    "configured": 19,
+    "enabled": 17,
+    "source": "UvA Chat model selector checked 2026-11-10",
+    "disabled_after_upstream_errors": [
+      "claude-haiku-4.5",
+      "claude-sonnet-5"
+    ],
+    "opencode_tool_test_model": "claude-sonnet-5.5",
+    "completed_tools": [
+      "read",
+      "write"
+    ],
+    "model_listing_verified_in_opencode": true
+  },
+  "terminal_command": {
+    "installed": "~/.local/bin/uva-opencode",
+    "calling_directory_preserved": true,
+    "shell_path_verified": true
+  },
+  "formatting_regression": {
+    "reported_date": "2026-11-10",
+    "before_fix": "Normal Build-agent website test failed with no completed tool operations.",
+    "after_fix": {
+      "opencode_exit_code": 0,
+      "file_contents_match": true,
+      "mode": "prompt",
+      "native_tools": false,
+      "isolated_project": true,
+      "completed_tools": [
+        "read",
+        "write"
+      ],
+      "model": "claude-sonnet-5.5",
+      "scenario": "website",
+      "output_bytes": 10415
+    },
+    "transport_instruction": "UvA systemPrompt field",
+    "bounded_format_repairs": 1,
+    "unrecoverable_format_error_http_status": 422,
+    "offline_python_checks": 22
+  },
+  "extension_free": {
+    "backend": "Playwright Chromium with dedicated persistent profile",
+    "live_login_verified": true,
+    "headless_session_verified": true,
+    "restart_without_login_window_verified": true,
+    "website_tool_test": {
+      "opencode_exit_code": 0,
+      "file_contents_match": true,
+      "mode": "prompt",
+      "native_tools": false,
+      "isolated_project": true,
+      "completed_tools": [
+        "read",
+        "write"
+      ],
+      "model": "claude-sonnet-5.5",
+      "scenario": "website",
+      "output_bytes": 10527
+    },
+    "offline_python_checks": 26,
+    "source_installer_tested_on": "macOS arm64",
+    "windows_packaging": false
+  }
+}

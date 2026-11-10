@@ -1,0 +1,56 @@
+# It builds artifacts only. No automatic publishing or signing credentials.
+name: Native UvA OpenCode installers
+on: [workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-15-intel, windows-2022, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt pyinstaller==6.22.0
+      - run: python -m unittest discover -p "test_*.py"
+      - if: runner.os == 'Linux'
+        run: python -m playwright install-deps chromium
+      - if: runner.os == 'Windows'
+        run: choco install innosetup --yes --no-progress
+      - run: python build_native.py
+      - name: Verify macOS installation
+        if: runner.os == 'macOS'
+        run: |
+          sudo installer -pkg "$(find dist -maxdepth 1 -name '*.pkg' -print -quit)" -target /
+          /usr/local/bin/uva-opencode --self-test
+      - name: Verify Windows installation
+        if: runner.os == 'Windows'
+        run: |
+          $installer = Get-ChildItem dist/*-setup.exe
+          $result = Start-Process -FilePath $installer.FullName -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait -PassThru
+          if ($result.ExitCode -ne 0) { exit $result.ExitCode }
+          & "$env:LOCALAPPDATA/Programs/UvAOpenCode/uva-opencode.exe" --self-test
+          exit $LASTEXITCODE
+      - name: Verify Linux installation
+        if: runner.os == 'Linux'
+        run: |
+          tar -xzf dist/*.tar.gz -C "$RUNNER_TEMP"
+          export HOME="$RUNNER_TEMP/test-home" XDG_DATA_HOME="$RUNNER_TEMP/test-data"
+          mkdir -p "$HOME"
+          "$RUNNER_TEMP/uva-opencode/install.sh"
+          "$HOME/.local/bin/uva-opencode" --self-test
+      - uses: actions/upload-artifact@v4
+        with:
+          name: uva-opencode-${{ matrix.os }}
+          if-no-files-found: error
+          path: |
+            dist/*.pkg
+            dist/*-setup.exe
+            dist/*.tar.gz

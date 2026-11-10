@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+mkdir -p /usr/local/bin
+if [ -e /usr/local/bin/uva-opencode ] && [ ! -L /usr/local/bin/uva-opencode ]; then
+  echo 'Existing /usr/local/bin/uva-opencode is not a symlink; left unchanged.' >&2
+  exit 1
+fi
+ln -sfn '/Library/Application Support/UvAOpenCodeApp/uva-opencode' /usr/local/bin/uva-opencode
