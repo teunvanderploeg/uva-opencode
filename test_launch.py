@@ -1,3 +1,5 @@
+import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -18,18 +20,24 @@ class Startup(unittest.TestCase):
         process = Mock()
         process.poll.return_value = None
         with tempfile.TemporaryDirectory() as folder, patch.object(launch, 'STATE', Path(folder)), \
+                patch.object(launch, 'FROZEN', True), \
                 patch.object(launch, 'health', side_effect=[None, None, {'ready': False}]), \
                 patch.object(launch.subprocess, 'Popen', return_value=process) as start, \
                 patch.object(launch.time, 'sleep'):
             self.assertFalse(launch.ensure_bridge()['ready'])
             self.assertEqual(start.call_count, 1)
-            self.assertTrue(start.call_args.kwargs['start_new_session'])
+            self.assertIn('--internal-bridge', start.call_args.args[0])
+            if os.name == 'nt':
+                self.assertEqual(start.call_args.kwargs['creationflags'], subprocess.CREATE_NEW_PROCESS_GROUP)
+            else:
+                self.assertTrue(start.call_args.kwargs['start_new_session'])
             process.terminate.assert_not_called()
 
     def test_failed_start_does_not_launch_opencode(self):
         process = Mock()
         process.poll.return_value = 1
         with tempfile.TemporaryDirectory() as folder, patch.object(launch, 'STATE', Path(folder)), \
+                patch.object(launch, 'FROZEN', True), \
                 patch.object(launch, 'health', return_value=None), \
                 patch.object(launch.subprocess, 'Popen', return_value=process):
             with self.assertRaisesRegex(RuntimeError, 'could not start'):

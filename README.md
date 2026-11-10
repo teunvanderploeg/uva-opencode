@@ -23,6 +23,16 @@ packages on Apple Silicon and Intel Macs, Windows x64, and Ubuntu x64.
 Download a package from a successful Actions run, or build it locally.
 The workflow does not publish a release automatically.
 
+- **Mac:** Open the `.pkg` for your Mac's processor. This unsigned build may
+  need manual approval in macOS. Open a new terminal after installation.
+- **Windows x64:** Run the `-setup.exe` installer. Open a new PowerShell
+  window after installation so the updated PATH takes effect.
+- **Linux x64:** Extract the `.tar.gz`, open the extracted folder, and run
+  `./install.sh`. Make sure `~/.local/bin` is on PATH. The browser still needs
+  the Linux system libraries normally present on an Ubuntu desktop.
+
+In your project folder, run `uva-opencode` and sign in to UvA when prompted.
+
 Build dependencies, needed only by the person producing installers:
 
 ```sh
