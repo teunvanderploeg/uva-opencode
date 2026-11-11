@@ -1,147 +1,230 @@
 # UvA OpenCode
 
-Run OpenCode against UvA AI Chat using a dedicated local browser. No browser
-extension or console snippet is needed.
+Run OpenCode against UvA AI Chat through a dedicated local Chromium session.
+The helper is written in Rust. Native bundles include Chromium and the official
+OpenCode binary, so users do not need Python, Playwright, or a separate OpenCode
+installation.
+
+Before upgrading an existing installation, close OpenCode and run
+`uva-opencode --stop` so the installer can replace its executables and browser.
 
 ## Install
 
-### Native installer builds
+Native packages target macOS ARM64 and Intel, Windows x64, and Linux x64. The
+[installer workflow](.github/workflows/native-build.yml) builds and installs each
+package on its target OS. It requires a manual Actions run and does not publish
+releases automatically. Local verification results and checks that still need
+other machines are recorded in [rust-validation.json](rust-validation.json).
 
-The Mac Apple Silicon installer is generated at
-`dist/uva-opencode-0.4.0-macos-arm64.pkg`. It contains its own Python runtime,
-Chromium, and a pinned official OpenCode binary. Classmates do not need to
-install those dependencies. After installing, open a fresh terminal in a project
-folder and run `uva-opencode`. The first run opens the UvA login window.
+- **macOS:** Open the `.pkg` for your processor. Current packages are unsigned
+  and not notarized. Open a new terminal after installation.
+- **Windows:** Run the `-setup.exe` installer, then open a new PowerShell window.
+- **Linux:** Extract the `.tar.gz` and run its `install.sh`. Ensure
+  `~/.local/bin` is on PATH. Chromium needs the system libraries present on a
+  supported Linux desktop; the CI workflow lists the Ubuntu build dependencies.
 
-This is an unsigned installer candidate. It has not been notarized by Apple or
-tested through an actual system installation. Bundled browser and OpenCode
-startup checks pass, and the existing login backend has passed its live tests.
-Apple signing and notarization are needed for a smooth public Mac release.
-
-The [installer workflow](.github/workflows/native-build.yml) builds and tests
-packages on Apple Silicon and Intel Macs, Windows x64, and Ubuntu x64.
-Download a package from a successful Actions run, or build it locally.
-The workflow does not publish a release automatically.
-
-- **Mac:** Open the `.pkg` for your Mac's processor. This unsigned build may
-  need manual approval in macOS. Open a new terminal after installation.
-- **Windows x64:** Run the `-setup.exe` installer. Open a new PowerShell
-  window after installation so the updated PATH takes effect.
-- **Linux x64:** Extract the `.tar.gz`, open the extracted folder, and run
-  `./install.sh`. Make sure `~/.local/bin` is on PATH. The browser still needs
-  the Linux system libraries normally present on an Ubuntu desktop.
-
-In your project folder, run `uva-opencode` and sign in to UvA when prompted.
-
-Build dependencies, needed only by the person producing installers:
+In a project folder, run:
 
 ```sh
-python -m pip install -r requirements.txt pyinstaller==6.22.0
-python build_native.py
-```
-
-Build on each target OS and CPU architecture. The native bundle's `--self-test`
-starts its included Chromium and OpenCode without using an external Python or
-OpenCode installation. Packaged credentials and profiles are stored in the
-user's application-data directory, outside the immutable install directory.
-
-### Source installation
-
-Requirements: macOS or Linux, Python 3, and an installed `opencode` command.
-Linux may also need Playwright's system browser dependencies.
-
-Extract the source archive, open a terminal in its folder, and run:
-
-```sh
-python3 install.py
-```
-
-The installer creates a private Python environment, installs a pinned Playwright
-version and Chromium runtime, and adds `~/.local/bin/uva-opencode`. If that folder
-is not on your PATH, the installer prints the full command to use. Keep the source
-folder after installation because the command points to it.
-
-## Use
-
-```sh
-cd /path/to/project
 uva-opencode
 ```
 
-On first use, a Chromium window opens for your normal UvA login and MFA. Leave
-it open until the helper closes it. The helper then checks that the session can
-be reused by a background browser. Later launches reuse that profile and need
-no visible window while the session remains valid.
+The first launch opens Chromium for your normal UvA login and MFA. Keep the
+window open until the helper closes it. The helper then verifies that it can
+reuse the same profile headlessly. Later launches reuse that background session.
+Select a UvA model in OpenCode with `/models`.
 
-The visible window closes, but a browser process continues running to make
-requests. Your everyday Firefox or Chrome can be closed. Login credentials are
-never read from another browser, exported into the bridge, or shipped with the
-installer. The dedicated browser keeps its own normal cookies on disk.
-
-The launcher preserves the folder you run it from. It automatically starts the
-local bridge and uses a separate OpenCode profile. Select a UvA model with
-`/models`. Seventeen models are enabled; two legacy Claude entries failed the
-last endpoint check and are disabled in `opencode.example.json`.
-
-Additional commands:
+## Commands
 
 ```sh
-uva-opencode --login   # Verify login, or reopen a failed login flow
-uva-opencode --check   # Verify the background connection without opening OpenCode
+uva-opencode /path/to/project
+uva-opencode --login   # Verify login or retry a failed login flow
+uva-opencode --check   # Connect without launching OpenCode
 uva-opencode --stop    # Stop the helper and its browser
+uva-opencode --self-test  # Verify a native bundle without a UvA account
 ```
 
-If login expires, the helper opens the login window again. After signing in,
-retry the interrupted OpenCode request. The installed app keeps the browser
-profile in your account's application data directory. Source installs use
-`.runtime/browser-profile/`. Treat either profile as private account data.
+`--setup` remains an alias for `--login`. `--wait SECONDS` changes the login wait
+limit, which defaults to 600 seconds. The launcher preserves the selected
+project directory, terminal input/output, and OpenCode's exit code. It creates
+an isolated OpenCode profile rather than changing your normal OpenCode config.
+`--self-test` always checks the bundled executables and ignores external browser
+path overrides.
+
+If a session expires, the helper opens the login window again. Complete sign-in,
+then retry the interrupted request. Queued requests from the expired session
+fail rather than running after the new login. Closing an unfinished login window
+leaves an error that `--login` can recover from.
+
+## Build from source
+
+Install Rust through rustup. `rust-toolchain.toml` pins the toolchain. Build the
+self-contained bundle with:
+
+```sh
+cargo xtask bundle
+```
+
+This uses the committed `vendor-lock.json` to download Chromium and OpenCode,
+checks their SHA-256 hashes, collects dependency notices, and runs the bundle's
+`--self-test`. The bundle is under `dist/native/uva-opencode/`. Run its
+`uva-opencode` executable directly, or `uva-opencode.exe` on Windows.
+
+On macOS and Linux, this command installs a bundle in your account and creates
+`~/.local/bin/uva-opencode`:
+
+```sh
+cargo xtask install
+```
+
+Use `cargo xtask install --prefix /path/to/prefix` to choose a different install
+location. It creates `bin/uva-opencode` and `share/uva-opencode-app` there.
+
+The installer refuses to overwrite an unrelated existing command. Stop a running
+helper before replacing an installed bundle. The previous app directory is kept
+next to the new installation for rollback.
+
+For development, point the Rust executable at the bundle's browser distribution:
+
+```sh
+UVA_BROWSERS_DIR="$PWD/dist/native/uva-opencode/browsers" cargo run -- --check
+UVA_BROWSERS_DIR="$PWD/dist/native/uva-opencode/browsers" cargo run --
+```
+
+An existing development download in `.runtime/browsers/` is also recognized.
+Development runs use `.runtime/rust/` for private state. `cargo run` uses OpenCode
+from PATH unless an OpenCode executable is beside the helper under `vendor/`.
+
+## Native release builds
+
+Build on the target OS and processor:
+
+```sh
+cargo xtask native
+cargo xtask source
+```
+
+Native output uses `.pkg` on macOS, Inno Setup on Windows, and `.tar.gz` on Linux.
+The source ZIP contains an explicit list of source/configuration files and source
+directories. It excludes private profiles, keys, logs, dependencies, build output,
+and the Python implementation.
+
+Vendor versions and download hashes are committed in `vendor-lock.json`. To
+update them, change the version constants in `xtask/src/package.rs`, run
+`cargo xtask lock-artifacts`, and review the new lock file. That command verifies
+OpenCode's npm SHA-512 integrity while generating the lock. Normal builds use
+only the committed hashes. The lock covers every supported OS/processor pair.
+
+Keep `THIRD_PARTY.md`, `licenses/`, Chromium notices, and `vendor/` provenance
+with redistributed bundles. Signing, notarization, and publication are separate
+release steps.
+
+## Tests
+
+The default tests are offline and do not require Chromium or an account:
+
+```sh
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --workspace --locked
+```
+
+Browser tests use a local fixture server and disposable profiles. They check
+visible-to-headless persistence, browser identity, expired sessions, cancellation,
+and shutdown. They need a desktop and a downloaded Chromium:
+
+```sh
+cargo test --test browser_lifecycle -- --ignored
+cargo test --lib lifecycle_recovers -- --ignored
+cargo test --lib closed_login_window -- --ignored
+```
+
+The process tests need port 8765 to be free:
+
+```sh
+cargo run -- --stop
+cargo test --test launcher_process -- --ignored --test-threads=1
+```
+
+Live checks use your own UvA account. Start the Rust bridge first, then run:
+
+```sh
+cargo run -- --check
+cargo xtask live --model gpt-6-luna --scenario copy
+cargo xtask live --model claude-sonnet-5.5 --scenario website
+cargo xtask models
+```
+
+Use `--opencode /path/to/bundled/opencode` to test the bundled client. `--state`
+selects another bridge state directory. Both file scenarios create disposable
+projects and require the agent to read a random value and write it to an output
+file. They verify completed client tools, not just the model's final claim.
+Results are written inside the private state directory.
+
+For a fresh-account login check without occupying the bridge port:
+
+```sh
+UVA_STATE_DIR="$PWD/.runtime/fresh-login" cargo run --example login
+```
+
+This opens the normal UvA login flow, verifies headless reuse and an authenticated
+request, then closes its browser. The profile remains private for a later restart
+check. Do not run two processes against the same profile.
 
 ## How it works
 
 ```text
-OpenCode -> authenticated loopback API -> dedicated browser -> UvA Chat
+OpenCode -> authenticated loopback API -> dedicated Chromium -> UvA Chat
 ```
 
-The browser uses the existing `/api/v1/chat/generic` endpoint. This is an
-undocumented UvA interface, and external-client support has not been confirmed
-by UvA. A website change can break the integration.
+Rust controls Chromium through the Chrome DevTools Protocol over private
+inherited pipes. Chromium does
+not open a debugging port. On Windows, a launch shim owns the inherited handles
+and a job object that closes its browser processes when the helper exits. An
+embedded JavaScript function performs same-origin fetches inside the signed-in
+page. Rust parses the upstream events, validates tool requests, and returns the
+OpenAI-compatible API responses. Browser cookies remain in the dedicated profile;
+the bridge does not export them or read your everyday browser's credentials.
 
-Native client tool calling did not work in the initial check. The adapter uses
-an explicit JSON tool protocol through UvA's `systemPrompt` field. OpenCode
-executes the requested tools under its own permissions and returns the results.
-A formatting failure gets at most one correction request, then returns HTTP 422.
-This remains emulated tool calling. It is less reliable than a supported native
-coding API.
+The bridge binds only to `127.0.0.1:8765`. Requests need the local bearer token,
+correct Host header, and no browser Origin header. Requests are limited to
+2,000,000 bytes. The browser queue holds four waiting requests and processes one
+upstream request at a time. Statistics retain the last 1,000 successful requests
+and contain counts and event types rather than prompt or response text.
 
-File contents read by OpenCode can be sent to UvA as conversation context.
-Only text is supported. Responses are buffered before returning the OpenAI-style
-stream. Token usage and remaining allowance are not reported to OpenCode; a
-zero displayed there is not a measurement of actual UvA usage. The 32,000-token
-client context cap is conservative and is not a measured upstream limit.
+UvA's `/api/v1/chat/generic` endpoint is undocumented. External-client support
+has not been confirmed by UvA, and website changes can break the integration.
+Native client tool calling remains experimental. The default adapter uses a JSON
+transport protocol through `systemPrompt`. It checks tool names, argument objects,
+and `tool_choice` before returning a tool request to OpenCode. OpenCode executes
+the tools under its own permissions. A formatting failure gets at most one repair
+request and then HTTP 422. Generated HTML is never searched for embedded tool
+instructions.
 
-## Checks
+Only text is supported. Responses are buffered before the compatible SSE output
+is sent so tool calls can be validated in full. Token usage and remaining quota
+are not reported. The configured 32,000-token context cap is conservative and is
+not a measured UvA limit. File contents read by OpenCode can be sent to UvA as
+conversation context.
 
-```sh
-python3 -m unittest -v test_bridge.py test_launch.py test_browser_session.py
-python3 test_opencode.py --model claude-sonnet-5.5 --scenario website
-```
+## Private state and Python rollback
 
-The website regression checks that the real OpenCode Build agent reads a random
-value from a test file and creates HTML containing that value in a disposable
-project. GPT file reading and writing were also verified before this backend
-change. Current login and end-to-end verification results are recorded in
-`validation.json`.
+Installed state stays in the existing per-user locations:
 
-## Share with classmates
+- macOS: `~/Library/Application Support/UvAOpenCode/`
+- Windows: `%LOCALAPPDATA%\UvAOpenCode\`
+- Linux: `${XDG_DATA_HOME:-~/.local/share}/uva-opencode/`
 
-Share the native installer that matches each classmate's OS and CPU. Each person
-signs in using their own UvA account. For source installs, run
-`python3 make_release.py`. The resulting `dist/uva-opencode-source.zip`
-contains only explicitly listed source and installation files. It excludes local
-keys, login profiles, logs, Python dependencies, and downloaded browsers.
+`UVA_STATE_DIR` overrides private state. `UVA_BROWSER_PATH` selects an explicit
+Chromium executable, and `UVA_BROWSERS_DIR` selects its distribution directory.
+Treat profiles and local tokens as private account data. Unix directories use
+mode 0700 and token files use 0600. Windows state directories restrict inherited
+access to the current account.
 
-## Previous extension setup
-
-The earlier Firefox userscript is not used by the default backend. You may
-disable **UvA OpenCode relay** in Tampermonkey. The old source files remain for
-reference but are excluded from the distributable archive.
+The Python implementation remains in the checkout while cross-platform Rust
+installation checks finish. Its source setup still uses `python3 install.py`;
+its original tests remain available. Rust development state is separate from
+Python's `.runtime/browser-profile/`. Stop the older helper before switching:
+both implementations use port 8765, and profiles must have a single owner.
+The Rust launcher reports an incompatible existing helper instead of silently
+reusing it. The old userscript/extension backend is retired from the Rust build.

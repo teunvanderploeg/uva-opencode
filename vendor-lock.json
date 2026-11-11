@@ -1,0 +1,58 @@
+{
+  "browser_version": "158.0.8127.18",
+  "opencode_version": "2.2.5",
+  "license": {
+    "url": "https://raw.githubusercontent.com/anomalyco/opencode/v2.2.5/LICENSE",
+    "sha256": "625f0f619133f89bbbb2abe37369613dfa1885eba1e50d02170deb62bb42cb6b"
+  },
+  "targets": {
+    "linux-x64": {
+      "browser": {
+        "url": "https://storage.googleapis.com/chrome-for-testing-public/158.0.8127.18/linux64/chrome-linux64.zip",
+        "sha256": "c6cb06e1574ac2f6c5c38e31551157fbcaa67e6366c89974084553c5a5772592"
+      },
+      "opencode": {
+        "url": "https://registry.npmjs.org/@opencode/cli-linux-x64-baseline/-/cli-linux-x64-baseline-2.2.5.tgz",
+        "sha256": "873856acbaa71c5ed8df6433e312dfa0c82a86e2cddfb9d80f0a31123a917a08"
+      },
+      "opencode_package": "@opencode/cli-linux-x64-baseline",
+      "opencode_integrity": "sha512-oPOT+EMmdz56HnSFPRVwZ0QTVL5defhOacnwzazu0XOuCWUtEKh8icIn323SdCLtqZtzjuU1mt6p2/13V93WWg=="
+    },
+    "macos-arm64": {
+      "browser": {
+        "url": "https://storage.googleapis.com/chrome-for-testing-public/158.0.8127.18/mac-arm64/chrome-mac-arm64.zip",
+        "sha256": "15d54783d40732983653ebc2171af38c6b5b5ab055a9afbf48d47c2b57836da9"
+      },
+      "opencode": {
+        "url": "https://registry.npmjs.org/@opencode/cli-darwin-arm64/-/cli-darwin-arm64-2.2.5.tgz",
+        "sha256": "dfd827de3281b4c3ca2b0bfc8f4beb103fa660c419d148a1a515c4344f9e9c02"
+      },
+      "opencode_package": "@opencode/cli-darwin-arm64",
+      "opencode_integrity": "sha512-UwGb2MIJqLSh4wfrkvqNiAohG1Wf5t96Nx7113QvmtCn5LGimmXYN0Tb1chD0mMRRdPvnUguevKRdwM0txZY1Q=="
+    },
+    "macos-x64": {
+      "browser": {
+        "url": "https://storage.googleapis.com/chrome-for-testing-public/158.0.8127.18/mac-x64/chrome-mac-x64.zip",
+        "sha256": "8208cc4d3c9a06fb893e028180fac019eac7092814aaac8b0fd9a8d82fb1d168"
+      },
+      "opencode": {
+        "url": "https://registry.npmjs.org/@opencode/cli-darwin-x64/-/cli-darwin-x64-2.2.5.tgz",
+        "sha256": "304f4666e7e37eac338de258f763b7f5b8987ab1bde2341dc1a613a8205c0010"
+      },
+      "opencode_package": "@opencode/cli-darwin-x64",
+      "opencode_integrity": "sha512-z+wqIBXk5DVwXVdyQJHOwwnnOlFOx0LfAlx3PzubJjE/3a948KPBkJruF5zm6yyglJGzNgR3ji7oD/B/HOMD+w=="
+    },
+    "windows-x64": {
+      "browser": {
+        "url": "https://storage.googleapis.com/chrome-for-testing-public/158.0.8127.18/win64/chrome-win64.zip",
+        "sha256": "b796e8a6231463d1a150ee679fd7cb0168b3728162d2d19bf7bbd867d60d55e2"
+      },
+      "opencode": {
+        "url": "https://registry.npmjs.org/@opencode/cli-windows-x64-baseline/-/cli-windows-x64-baseline-2.2.5.tgz",
+        "sha256": "2468c9fafad44e0454767410b5503cef361269a76e537496e5e9159e1b2385f4"
+      },
+      "opencode_package": "@opencode/cli-windows-x64-baseline",
+      "opencode_integrity": "sha512-MSSHmCs7301UnYROwPZUjx081pbfuavFgvr0A8zFyAyKu2bP+fMxNvzKcWXLNC8cnFF1flQtFZQlvUbS0+QwEA=="
+    }
+  }
+}

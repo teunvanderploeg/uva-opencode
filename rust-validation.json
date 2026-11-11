@@ -1,0 +1,194 @@
+{
+  "checked_at": "2026-11-11T12:05:04.708660+00:00",
+  "version": "0.5.0",
+  "implementation": "rust",
+  "validation_status": "local_validation_complete",
+  "local_host": "macOS arm64",
+  "checks": {
+    "rust_tests": {
+      "passed": 29,
+      "failed": 0,
+      "ignored": 0,
+      "command": "cargo test --workspace --locked -- --include-ignored --test-threads=1"
+    },
+    "python_rollback_tests": {
+      "passed": 26,
+      "failed": 0
+    },
+    "cargo_fmt": "passed",
+    "cargo_clippy_workspace_all_targets": "passed",
+    "windows_x64_all_targets_cross_check": "passed; GNU target type checking, no native runtime claim",
+    "linux_x64_all_targets_cross_check": "passed; type checking, no native runtime claim",
+    "fresh_uva_login_and_mfa": "passed; user completed sign-in in a fresh Rust-controlled profile",
+    "fresh_profile_headless_reuse_and_restart": "passed; authenticated requests succeeded over private CDP pipes",
+    "private_browser_transport": "passed; inherited pipes, no debugging TCP port",
+    "bounded_tool_repair_and_http_422": "passed",
+    "loopback_authentication_and_request_limits": "passed",
+    "concurrent_launcher_working_directory_environment_and_exit_code": "passed",
+    "browser_expiry_cancellation_shutdown_closed_login_and_crash": "passed"
+  },
+  "opencode": {
+    "copy": {
+      "checked_at": "2026-11-11T11:49:47.774083+00:00",
+      "completed_tools": [
+        "read",
+        "patch"
+      ],
+      "file_contents_match": true,
+      "implementation": "rust",
+      "isolated_project": true,
+      "mode": "prompt",
+      "model": "gpt-6-luna",
+      "native_tools": false,
+      "opencode_exit_code": 0,
+      "output_bytes": 46,
+      "scenario": "copy"
+    },
+    "website": {
+      "checked_at": "2026-11-11T11:50:24.772611+00:00",
+      "completed_tools": [
+        "read",
+        "write"
+      ],
+      "file_contents_match": true,
+      "implementation": "rust",
+      "isolated_project": true,
+      "mode": "prompt",
+      "model": "claude-sonnet-5.5",
+      "native_tools": false,
+      "opencode_exit_code": 0,
+      "output_bytes": 7697,
+      "scenario": "website"
+    }
+  },
+  "models": {
+    "checked_at": "2026-11-11T11:50:58.223899+00:00",
+    "implementation": "rust",
+    "results": [
+      {
+        "http_status": 200,
+        "model": "ai-smart-router-claude",
+        "passed": true
+      },
+      {
+        "http_status": 200,
+        "model": "ai-smart-router-gpt",
+        "passed": true
+      },
+      {
+        "http_status": 200,
+        "model": "claude-sonnet-4.6",
+        "passed": true
+      },
+      {
+        "http_status": 200,
+        "model": "claude-sonnet-5.5",
+        "passed": true
+      },
+      {
+        "http_status": 200,
+        "model": "gpt-4.1",
+        "passed": true
+      },
+      {
+        "http_status": 200,
+        "model": "gpt-4o",
+        "passed": true
+      },
+      {
+        "http_status": 200,
+        "model": "gpt-5",
+        "passed": true
+      },
+      {
+        "http_status": 200,
+        "model": "gpt-5-mini",
+        "passed": true
+      },
+      {
+        "http_status": 200,
+        "model": "gpt-5-nano",
+        "passed": true
+      },
+      {
+        "http_status": 200,
+        "model": "gpt-5.1",
+        "passed": true
+      },
+      {
+        "http_status": 200,
+        "model": "gpt-5.6-luna",
+        "passed": true
+      },
+      {
+        "http_status": 200,
+        "model": "gpt-5.6-terra",
+        "passed": true
+      },
+      {
+        "http_status": 200,
+        "model": "gpt-6-luna",
+        "passed": true
+      },
+      {
+        "http_status": 200,
+        "model": "gpt-6.1-sol",
+        "passed": true
+      },
+      {
+        "http_status": 200,
+        "model": "gpt-6.1-terra",
+        "passed": true
+      },
+      {
+        "http_status": 200,
+        "model": "gpt-oss-120b",
+        "passed": true
+      },
+      {
+        "http_status": 200,
+        "model": "mistral-small-3.2",
+        "passed": true
+      }
+    ]
+  },
+  "packaging": {
+    "macos_arm64_bundle_self_test": "passed with missing external browser overrides",
+    "macos_arm64_pkg_built": true,
+    "expanded_macos_arm64_payload_self_test": "passed with missing external browser overrides",
+    "macos_arm64_temporary_prefix_symlink_install": "passed; installed binary matches release binary",
+    "macos_x64_rust_compile": "passed",
+    "macos_x64_rosetta_browser_driver": "passed; complete final bundle self-test includes Chromium and OpenCode; cold Rosetta starts needed retries",
+    "source_archive_audit": {
+      "files": 38,
+      "allowlist_passed": true,
+      "no_python_or_private_state": true,
+      "all_bytes_match_worktree": true,
+      "permissions_passed": true
+    },
+    "source_archive_extracted_compile": "passed; cargo check --workspace --locked on extracted source",
+    "macos_x64_pkg_built": true,
+    "macos_x64_package_payload_audit": {
+      "target": "macos-x64",
+      "payload_entries": 1372,
+      "all_files_sha256_modes_and_symlinks_match_tested_bundle": true,
+      "postinstall_matches_source": true,
+      "nonrelocatable_application_payload": true,
+      "no_python_or_private_runtime_files": true
+    },
+    "macos_arm64_development_bundle_restored": true,
+    "macos_arm64_executable_consistency": {
+      "release_bundle_installer_and_symlink_install_match": true,
+      "sha256": "c4fcafb9507bc8bec4dac0cbb235a994d7de85420fe0345ef95afce3a15ed161"
+    }
+  },
+  "external_checks": [
+    "Actual system installation of the macOS package",
+    "Windows x64 native build, browser lifecycle, and installed self-test",
+    "Linux x64 native build, browser lifecycle, and installed self-test; local Docker daemon unavailable",
+    "macOS Intel native hardware validation; Rosetta is not a substitute",
+    "Apple signing and notarization"
+  ],
+  "python_rollback_retained": true,
+  "global_installation_replaced": false
+}
