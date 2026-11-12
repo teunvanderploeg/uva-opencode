@@ -262,3 +262,184 @@ async fn upstream_error_events_are_never_repaired() {
     );
     assert_eq!(fake.requests.lock().unwrap().len(), 1);
 }
+
+#[tokio::test]
+async fn compact_history_preserves_content_ids_and_invalid_arguments() {
+    let code = "const greeting = \"UvA 🦀\";\n".repeat(100);
+    let arguments = json!({"path":"main.js","content":code});
+    let mut body = request();
+    body.messages = vec![
+        json!({"role":"system","content":"Keep the instructions."}),
+        json!({"role":"user","content":[{"type":"text","text":"First"},{"type":"text","text":"Second"}]}),
+        json!({"role":"assistant","content":null,"tool_calls":[
+            {"id":"call_original","type":"function","function":{"name":"write","arguments":arguments.to_string()}},
+            {"id":"call_invalid","type":"function","function":{"name":"read","arguments":"{broken"}}
+        ]}),
+        json!({"role":"tool","tool_call_id":"call_original","content":"Written"}),
+    ];
+    let original = json!(body.messages).to_string();
+    let fake = Fake::new(&[r#"{"content":"done","tool_calls":[]}"#]);
+    transport::completion(&body, ToolMode::Prompt, &fake)
+        .await
+        .unwrap();
+    let requests = fake.requests.lock().unwrap();
+    let text = requests[0]["messages"][0]["parts"][0]["text"]
+        .as_str()
+        .unwrap();
+    let compact = text.strip_prefix("Client conversation:\n").unwrap();
+    assert!(compact.len() < original.len());
+    let messages: Value = serde_json::from_str(compact).unwrap();
+    assert_eq!(messages[0], body.messages[0]);
+    assert_eq!(messages[1]["content"], "First\nSecond");
+    assert_eq!(
+        messages[2]["tool_calls"][0]["function"]["arguments"],
+        arguments
+    );
+    assert_eq!(messages[2]["tool_calls"][0]["id"], "call_original");
+    assert_eq!(
+        messages[2]["tool_calls"][1]["function"]["arguments"],
+        "{broken"
+    );
+    assert_eq!(messages[3], body.messages[3]);
+}
+
+#[tokio::test]
+async fn usage_falls_back_to_an_estimate_and_prefers_provider_counts() {
+    let fake = Fake::new(&[r#"{"content":"hello","tool_calls":[]}"#]);
+    let result = transport::completion(&request(), ToolMode::Prompt, &fake)
+        .await
+        .unwrap();
+    assert_eq!(result.stats["usage_source"], "estimated");
+    let usage = &result.response["usage"];
+    assert!(usage["prompt_tokens"].as_u64().unwrap() > 0);
+    assert!(usage["completion_tokens"].as_u64().unwrap() > 0);
+    assert_eq!(
+        usage["total_tokens"].as_u64().unwrap(),
+        usage["prompt_tokens"].as_u64().unwrap() + usage["completion_tokens"].as_u64().unwrap()
+    );
+    for key in ["usage", "totalUsage"] {
+        let fake = Fake::new(&[r#"{"content":"hello","tool_calls":[]}"#]);
+        fake.responses.lock().unwrap().front_mut().unwrap().push(
+            serde_json::from_value(
+                json!({"type":"finish",key:{"inputTokens":1234,"outputTokens":56}}),
+            )
+            .unwrap(),
+        );
+        let result = transport::completion(&request(), ToolMode::Prompt, &fake)
+            .await
+            .unwrap();
+        assert_eq!(result.stats["usage_source"], "upstream");
+        assert_eq!(
+            result.response["usage"],
+            json!({"prompt_tokens":1234,"completion_tokens":56,"total_tokens":1290})
+        );
+    }
+}
+
+#[tokio::test]
+async fn repair_usage_accounts_for_the_expanded_context() {
+    let valid = r#"{"content":"hello","tool_calls":[]}"#;
+    let fake = Fake::new(&[valid]);
+    let initial = transport::completion(&request(), ToolMode::Prompt, &fake)
+        .await
+        .unwrap();
+    let fake = Fake::new(&["invalid response", valid]);
+    let repaired = transport::completion(&request(), ToolMode::Prompt, &fake)
+        .await
+        .unwrap();
+    assert!(
+        repaired.response["usage"]["prompt_tokens"]
+            .as_u64()
+            .unwrap()
+            > initial.response["usage"]["prompt_tokens"].as_u64().unwrap()
+    );
+    assert_eq!(repaired.stats["transport_repaired"], true);
+}
+
+#[tokio::test]
+async fn diagnostic_breakdown_separates_context_without_recording_text() {
+    let mut body = request();
+    body.messages = vec![
+        json!({"role":"system","content":"PRIVATE_SYSTEM"}),
+        json!({"role":"developer","content":"PRIVATE_POLICY"}),
+        json!({"role":"user","content":"PRIVATE_TASK"}),
+        json!({"role":"assistant","content":null,"tool_calls":[{"id":"original","type":"function","function":{"name":"read","arguments":"{\"path\":\"private.txt\"}"}}]}),
+        json!({"role":"tool","tool_call_id":"original","content":"PRIVATE_RESULT"}),
+    ];
+    let valid = r#"{"content":"done","tool_calls":[]}"#;
+    let first = transport::completion(&body, ToolMode::Prompt, &Fake::new(&[valid]))
+        .await
+        .unwrap();
+    let breakdown = first.stats["input_breakdown_estimated"]
+        .as_object()
+        .unwrap();
+    assert_eq!(breakdown.len(), 5);
+    assert!(breakdown.values().all(|v| v.as_u64().unwrap() > 0));
+    assert!(!first.stats.to_string().contains("PRIVATE_"));
+    assert!(!first.stats.to_string().contains("private.txt"));
+    assert_eq!(first.stats["upstream_requests"], 1);
+    assert_eq!(
+        first.stats["initial_input_estimated_tokens"],
+        first.response["usage"]["prompt_tokens"]
+    );
+
+    // Only the tool-results bucket should grow when a result grows.
+    body.messages[4]["content"] = json!("🦀".repeat(3000));
+    let larger = transport::completion(&body, ToolMode::Prompt, &Fake::new(&[valid]))
+        .await
+        .unwrap();
+    for key in [
+        "adapter_instructions",
+        "tool_definitions",
+        "client_instructions",
+        "conversation",
+    ] {
+        assert_eq!(
+            first.stats["input_breakdown_estimated"][key],
+            larger.stats["input_breakdown_estimated"][key]
+        );
+    }
+    assert!(
+        larger.stats["input_breakdown_estimated"]["tool_results"]
+            .as_u64()
+            .unwrap()
+            > breakdown["tool_results"].as_u64().unwrap()
+    );
+    let repaired = transport::completion(&body, ToolMode::Prompt, &Fake::new(&["invalid", valid]))
+        .await
+        .unwrap();
+    assert_eq!(repaired.stats["upstream_requests"], 2);
+    assert_eq!(
+        repaired.stats["input_breakdown_estimated"],
+        larger.stats["input_breakdown_estimated"]
+    );
+    assert_eq!(
+        repaired.stats["initial_input_estimated_tokens"],
+        larger.stats["initial_input_estimated_tokens"]
+    );
+}
+
+#[tokio::test]
+async fn multiple_read_requests_preserve_each_call_and_argument() {
+    let fake = Fake::new(&[
+        r#"{"content":null,"tool_calls":[{"name":"read","arguments":{"path":"a.rs","offset":10,"limit":20}},{"name":"read","arguments":{"path":"b.rs","offset":30,"limit":40}}]}"#,
+    ]);
+    let result = transport::completion(&request(), ToolMode::Prompt, &fake)
+        .await
+        .unwrap();
+    let calls = result.response["choices"][0]["message"]["tool_calls"]
+        .as_array()
+        .unwrap();
+    assert_eq!(calls.len(), 2);
+    assert_ne!(calls[0]["id"], calls[1]["id"]);
+    for (call, expected) in calls.iter().zip([
+        json!({"path":"a.rs","offset":10,"limit":20}),
+        json!({"path":"b.rs","offset":30,"limit":40}),
+    ]) {
+        assert_eq!(
+            serde_json::from_str::<Value>(call["function"]["arguments"].as_str().unwrap()).unwrap(),
+            expected
+        );
+    }
+    assert_eq!(fake.requests.lock().unwrap().len(), 1);
+}

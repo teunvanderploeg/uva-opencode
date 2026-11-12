@@ -138,6 +138,124 @@ fn ui_message(role: &str, content: &str) -> Value {
         "createdAt":chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)})
 }
 
+// Keep message boundaries and tool IDs, but avoid JSON encoded inside JSON.
+// Invalid or non-object argument strings are retained verbatim.
+fn normalized_messages(messages: &[Value]) -> Vec<Value> {
+    messages
+        .iter()
+        .map(|message| {
+            let mut message = message.clone();
+            if message["content"].is_array() {
+                message["content"] = json!(content_text(&message).expect("validated text content"));
+            }
+            if let Some(calls) = message.get_mut("tool_calls").and_then(Value::as_array_mut) {
+                for call in calls {
+                    if let Some(raw) = call["function"]["arguments"].as_str()
+                        && let Ok(value @ Value::Object(_)) = serde_json::from_str::<Value>(raw)
+                    {
+                        call["function"]["arguments"] = value;
+                    }
+                }
+            }
+            message
+        })
+        .collect()
+}
+
+fn conversation(messages: &[Value]) -> String {
+    format!(
+        "Client conversation:\n{}",
+        json!(normalized_messages(messages))
+    )
+}
+
+// UvA does not always expose usage. A conservative text estimate lets clients
+// compact context instead of treating every request as zero tokens. It is not
+// a billing count and varies by model, language, and source code.
+fn estimate_tokens(text: &str) -> u64 {
+    text.chars().count().div_ceil(3) as u64
+}
+
+fn request_tokens(payload: &Value) -> u64 {
+    let mut tokens = payload["systemPrompt"]
+        .as_str()
+        .map(estimate_tokens)
+        .unwrap_or(0);
+    if let Some(messages) = payload["messages"].as_array() {
+        for message in messages {
+            tokens += 4;
+            if let Some(parts) = message["parts"].as_array() {
+                for part in parts {
+                    tokens += part["text"].as_str().map(estimate_tokens).unwrap_or(0);
+                }
+            }
+        }
+    }
+    if let Some(tools) = payload.get("tools") {
+        tokens += estimate_tokens(&tools.to_string());
+    }
+    tokens
+}
+
+// Diagnostic estimates for the original client request only. Do not log text.
+// Separate serialization/rounding means these need not sum to provider usage.
+fn input_breakdown(body: &ChatRequest, mode: ToolMode) -> Value {
+    let mut instructions = 0;
+    let mut conversation = 0;
+    let mut results = 0;
+    for message in normalized_messages(&body.messages) {
+        let tokens = estimate_tokens(&message.to_string());
+        match message["role"].as_str() {
+            Some("system" | "developer") => instructions += tokens,
+            Some("tool") => results += tokens,
+            _ => conversation += tokens,
+        }
+    }
+    let (adapter, tools) = if mode == ToolMode::Prompt {
+        let definitions: Vec<_> = body.tools.iter().map(|tool| &tool.function).collect();
+        (
+            estimate_tokens(include_str!("transport-prompt.txt").trim_end()),
+            estimate_tokens(&json!(definitions).to_string()),
+        )
+    } else {
+        (
+            0,
+            if body.tools.is_empty() {
+                0
+            } else {
+                estimate_tokens(&json!(body.tools).to_string())
+            },
+        )
+    };
+    json!({"adapter_instructions":adapter,"tool_definitions":tools,
+        "client_instructions":instructions,"conversation":conversation,"tool_results":results})
+}
+
+fn usage(events: &[Event], input_estimate: u64, raw: &str) -> (Value, &'static str) {
+    let actual = events
+        .iter()
+        .rev()
+        .filter_map(|event| event.usage.as_ref())
+        .find_map(|usage| {
+            let input = usage["inputTokens"]
+                .as_u64()
+                .or_else(|| usage["prompt_tokens"].as_u64())?;
+            let output = usage["outputTokens"]
+                .as_u64()
+                .or_else(|| usage["completion_tokens"].as_u64())?;
+            (input > 0).then_some((input, output))
+        });
+    let (input, output) = actual.unwrap_or_else(|| (input_estimate, estimate_tokens(raw)));
+    (
+        json!({"prompt_tokens":input,"completion_tokens":output,"total_tokens":input + output}),
+        if actual.is_some() {
+            "upstream"
+        } else {
+            "estimated"
+        },
+    )
+}
+
 fn instructions(body: &ChatRequest) -> String {
     let definitions: Vec<_> = body
         .tools
@@ -158,11 +276,13 @@ pub const REPAIR: &str = "Your last response did not match the client transport 
 async fn prompt_response(
     upstream: &impl Upstream,
     mut payload: Value,
-) -> Result<(Envelope, Vec<Event>, bool)> {
+) -> Result<(Envelope, Vec<Event>, bool, Value, &'static str)> {
+    let input_estimate = request_tokens(&payload);
     let events = upstream.request(payload.clone(), "generic").await?;
     let raw = upstream::text_of(&events)?;
     if let Ok(obj) = transport_object(&raw) {
-        return Ok((obj, events, false));
+        let (usage, source) = usage(&events, input_estimate, &raw);
+        return Ok((obj, events, false, usage, source));
     }
     if events
         .iter()
@@ -189,10 +309,13 @@ async fn prompt_response(
         },
     ));
     messages.push(ui_message("user", REPAIR));
+    let input_estimate = request_tokens(&payload);
     let events = upstream.request(payload, "generic").await?;
-    let obj = transport_object(&upstream::text_of(&events)?)
+    let raw = upstream::text_of(&events)?;
+    let obj = transport_object(&raw)
         .map_err(|_| Error::transport("Model formatting failed after one repair attempt. Try another UvA model or a smaller task. No invalid tool call was executed."))?;
-    Ok((obj, events, true))
+    let (usage, source) = usage(&events, input_estimate, &raw);
+    Ok((obj, events, true, usage, source))
 }
 
 pub struct Completion {
@@ -237,10 +360,7 @@ pub async fn completion(
         ));
     }
     let messages: Vec<_> = if mode == ToolMode::Prompt {
-        vec![ui_message(
-            "user",
-            &format!("Client conversation:\n{}", json!(body.messages)),
-        )]
+        vec![ui_message("user", &conversation(&body.messages))]
     } else {
         body.messages
             .iter()
@@ -254,13 +374,15 @@ pub async fn completion(
         payload["tools"] = json!(body.tools);
         payload["tool_choice"] = body.tool_choice.clone();
     }
+    let breakdown = input_breakdown(body, mode);
+    let initial_input_estimate = request_tokens(&payload);
     let allowed: HashSet<_> = body
         .tools
         .iter()
         .map(|tool| tool.function.name.as_str())
         .collect();
-    let (content, calls, events, repaired) = if mode == ToolMode::Prompt {
-        let (obj, events, repaired) = prompt_response(upstream, payload).await?;
+    let (content, calls, events, repaired, usage, usage_source) = if mode == ToolMode::Prompt {
+        let (obj, events, repaired, usage, source) = prompt_response(upstream, payload).await?;
         let mut calls = Vec::new();
         for call in obj.tool_calls {
             if !allowed.contains(call.name.as_str()) {
@@ -273,8 +395,9 @@ pub async fn completion(
                 "function":{"name":call.name,"arguments":json!(call.arguments).to_string()}}),
             );
         }
-        (obj.content, calls, events, repaired)
+        (obj.content, calls, events, repaired, usage, source)
     } else {
+        let input_estimate = request_tokens(&payload);
         let events = upstream.request(payload, "generic").await?;
         let content = upstream::text_of(&events)?;
         let mut calls = Vec::new();
@@ -298,7 +421,8 @@ pub async fn completion(
             }
             calls.push(json!({"id":id,"type":"function","function":{"name":name,"arguments":input.to_string()}}));
         }
-        (json!(content), calls, events, false)
+        let (usage, source) = usage(&events, input_estimate, &content);
+        (json!(content), calls, events, false, usage, source)
     };
     if body.tool_choice == "none" && !calls.is_empty() {
         return Err(Error::transport(
@@ -323,10 +447,10 @@ pub async fn completion(
         message["tool_calls"] = json!(calls);
     }
     let stats = json!({"mode":mode,"model":body.model,"messages":body.messages.len(),"tools_offered":body.tools.len(),
-        "tools_returned":calls.iter().map(|c| &c["function"]["name"]).collect::<Vec<_>>(),"transport_repaired":repaired,"event_types":upstream::event_types(&events)});
+        "tools_returned":calls.iter().map(|c| &c["function"]["name"]).collect::<Vec<_>>(),"transport_repaired":repaired,"usage":usage,"usage_source":usage_source,"input_breakdown_estimated":breakdown,"initial_input_estimated_tokens":initial_input_estimate,"upstream_requests":if repaired { 2 } else { 1 },"event_types":upstream::event_types(&events)});
     let response = json!({"id":format!("chatcmpl-{}",Uuid::new_v4().simple()),"object":"chat.completion",
         "created":SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),"model":body.model,
-        "choices":[{"index":0,"message":message,"finish_reason":if calls.is_empty() { "stop" } else { "tool_calls" }}]});
+        "usage":usage,"choices":[{"index":0,"message":message,"finish_reason":if calls.is_empty() { "stop" } else { "tool_calls" }}]});
     Ok(Completion { response, stats })
 }
 
@@ -355,6 +479,9 @@ pub fn stream_chunks(result: &Value) -> Vec<String> {
     ] {
         let mut chunk = result.clone();
         chunk["object"] = json!("chat.completion.chunk");
+        if finish.is_null() {
+            chunk.as_object_mut().unwrap().remove("usage");
+        }
         chunk["choices"] = json!([{"index":0,"delta":delta,"finish_reason":finish}]);
         chunks.push(chunk.to_string());
     }

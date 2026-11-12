@@ -1,6 +1,10 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "model": "uva/gpt-6-luna",
+  "tool_output": {
+    "max_lines": 500,
+    "max_bytes": 16000
+  },
   "providers": {
     "uva": {
       "name": "UvA browser relay, emulated tools",

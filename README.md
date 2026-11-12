@@ -77,6 +77,50 @@ Later launches reuse your saved login. OpenCode uses its own isolated configurat
 
 If your login expires, finish sign-in again and retry the request.
 
+## Context and token usage
+
+The bridge compacts text parts and tool argument encoding while preserving message
+order, instructions, tool IDs, and tool results. OpenCode still sends the current
+conversation and tool definitions on each request.
+
+Responses include token usage so OpenCode can track context size for automatic
+compaction. When UvA omits usage, the bridge estimates one token per three text
+characters, plus message overhead. Estimates vary by model and content and are
+not billing counts. The authenticated `/stats` endpoint marks `usage_source` as
+`upstream` or `estimated`. After a formatting repair, usage describes the final
+request, including the repair context, rather than both attempts combined.
+
+Command output retention is configured to 500 lines or 16,000 bytes in the
+managed OpenCode configuration. OpenCode retains full shortened command output
+in a managed file. File reads have their own paging limits and can retrieve
+omitted lines with `offset` and `limit`. The model is
+instructed to search before reading large files, use relevant ranges, group
+independent read-only requests, and retrieve omitted output when needed. These
+are instructions to the model, not forced parallel execution.
+
+The authenticated `/stats` endpoint also includes `input_breakdown_estimated`
+for adapter instructions, tool definitions, client instructions, conversation,
+and tool results. These are estimates for the original request only, contain no
+message text, and need not sum to provider usage because serialization and
+rounding differ. `initial_input_estimated_tokens` estimates the complete original
+payload; `upstream_requests` counts the initial request and any formatting repair.
+UvA's own server-side instructions are not visible to these estimates.
+
+To adjust output limits for a project, add an `opencode.json` file:
+
+```json
+{
+  "tool_output": {
+    "max_lines": 1000,
+    "max_bytes": 32000
+  }
+}
+```
+
+To use updated source, quit OpenCode, run `uva-opencode --stop`, run
+`cargo xtask install`, then start `uva-opencode` again. Start a new session for
+unrelated work to avoid resending the previous task's history.
+
 ## Before you use it
 
 Only text is supported. Files read by OpenCode may be sent to UvA as conversation

@@ -5,6 +5,8 @@ use std::{collections::BTreeSet, future::Future};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Event {
+    #[serde(default, alias = "totalUsage", skip_serializing_if = "Option::is_none")]
+    pub usage: Option<Value>,
     #[serde(rename = "type")]
     pub kind: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]

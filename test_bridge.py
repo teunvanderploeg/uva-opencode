@@ -105,6 +105,76 @@ class TransportValidation(unittest.TestCase):
             bridge.completion({'uva_tool_mode': 'native', 'messages': [
                 {'role': 'tool', 'tool_call_id': 'x', 'content': 'secret value'}]})
 
+    def test_compact_history_preserves_code_and_tool_links(self):
+        code = 'const greeting = "UvA 🦀";\n' * 100
+        arguments = {'path': 'main.js', 'content': code}
+        messages = [
+            {'role': 'system', 'content': 'Keep these instructions.'},
+            {'role': 'user', 'content': [{'type': 'text', 'text': 'First'}, {'type': 'text', 'text': 'Second'}]},
+            {'role': 'assistant', 'content': None, 'tool_calls': [
+                {'id': 'original', 'type': 'function', 'function': {'name': 'write', 'arguments': json.dumps(arguments)}},
+                {'id': 'broken', 'type': 'function', 'function': {'name': 'read', 'arguments': '{broken'}}]},
+            {'role': 'tool', 'tool_call_id': 'original', 'content': 'Written'}]
+        original = json.dumps(messages)
+        text = bridge.shim_messages({'messages': messages})[0]['parts'][0]['text'].split('\n', 1)[1]
+        compact = json.loads(text)
+        self.assertLess(len(text), len(original))
+        self.assertEqual(compact[0], messages[0])
+        self.assertEqual(compact[1]['content'], 'First\nSecond')
+        self.assertEqual(compact[2]['tool_calls'][0]['function']['arguments'], arguments)
+        self.assertEqual(compact[2]['tool_calls'][0]['id'], 'original')
+        self.assertEqual(compact[2]['tool_calls'][1]['function']['arguments'], '{broken')
+        self.assertEqual(compact[3], messages[3])
+        self.assertIsInstance(messages[2]['tool_calls'][0]['function']['arguments'], str)
+
+    def test_usage_estimates_and_provider_counts(self):
+        result = self.respond({'content': 'hello', 'tool_calls': []})
+        usage = result['usage']
+        self.assertGreater(usage['prompt_tokens'], 0)
+        self.assertGreater(usage['completion_tokens'], 0)
+        self.assertEqual(usage['total_tokens'], usage['prompt_tokens'] + usage['completion_tokens'])
+        for key in ('usage', 'totalUsage'):
+            usage, source = bridge.response_usage({}, [{'type': 'finish', key: {'inputTokens': 1234, 'outputTokens': 56}}], '')
+            self.assertEqual(source, 'upstream')
+            self.assertEqual(usage, {'prompt_tokens': 1234, 'completion_tokens': 56, 'total_tokens': 1290})
+        usage, source = bridge.response_usage({}, [{'usage': {'inputTokens': -1, 'outputTokens': 2}}], 'hello')
+        self.assertEqual(source, 'estimated')
+
+    def test_prompt_images_are_rejected(self):
+        with self.assertRaisesRegex(ValueError, 'text messages only'):
+            bridge.shim_messages({'messages': [{'role': 'user', 'content': [{'type': 'image_url'}]}]})
+
+    def test_breakdown_tracks_results_without_logging_contents(self):
+        body = dict(self.body, messages=[
+            {'role': 'system', 'content': 'PRIVATE_SYSTEM'},
+            {'role': 'developer', 'content': 'PRIVATE_POLICY'},
+            {'role': 'user', 'content': 'PRIVATE_TASK'},
+            {'role': 'tool', 'tool_call_id': 'original', 'content': 'PRIVATE_RESULT'}])
+        before = bridge.input_breakdown(body, 'prompt')
+        self.assertEqual(len(before), 5)
+        self.assertTrue(all(value > 0 for value in before.values()))
+        body['messages'][-1]['content'] = '🦀' * 3000
+        after = bridge.input_breakdown(body, 'prompt')
+        self.assertGreater(after['tool_results'], before['tool_results'])
+        self.assertEqual({k: v for k, v in before.items() if k != 'tool_results'},
+                         {k: v for k, v in after.items() if k != 'tool_results'})
+        valid = json.dumps({'content': 'done', 'tool_calls': []})
+        with patch.object(bridge, 'upstream', side_effect=[
+                [{'type': 'text-delta', 'delta': 'invalid'}],
+                [{'type': 'text-delta', 'delta': valid}]]):
+            bridge.completion(body)
+        stats = bridge.STATS[-1]
+        self.assertEqual(stats['upstream_requests'], 2)
+        self.assertEqual(stats['input_breakdown_estimated'], after)
+        self.assertGreater(stats['usage']['prompt_tokens'], stats['initial_input_estimated_tokens'])
+        self.assertNotIn('PRIVATE_', json.dumps(stats))
+        self.assertEqual(bridge.input_breakdown(dict(body, tools=[]), 'native')['adapter_instructions'], 0)
+
+    def test_prompt_protocol_stays_in_sync_with_rust(self):
+        from pathlib import Path
+        prompt = (Path(__file__).parent / 'src/transport-prompt.txt').read_text().rstrip()
+        self.assertTrue(bridge.transport_instructions(self.body).startswith(prompt + ' Available client tools: '))
+
 
 class LocalAccess(unittest.TestCase):
     def accepted(self, path, key, origin=None, host='127.0.0.1:8765'):

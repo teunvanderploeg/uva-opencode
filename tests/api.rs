@@ -144,6 +144,12 @@ async fn json_and_sse_have_matching_content_and_finish_reasons() {
     let last: Value = serde_json::from_str(frames[1]).unwrap();
     assert_eq!(last["choices"][0]["finish_reason"], "stop");
     assert!(first.get("usage").is_none());
+    assert!(last["usage"]["prompt_tokens"].as_u64().unwrap() > 0);
+    assert_eq!(
+        last["usage"]["total_tokens"].as_u64().unwrap(),
+        last["usage"]["prompt_tokens"].as_u64().unwrap()
+            + last["usage"]["completion_tokens"].as_u64().unwrap()
+    );
 }
 #[tokio::test]
 async fn oversized_and_malformed_requests_are_rejected() {
