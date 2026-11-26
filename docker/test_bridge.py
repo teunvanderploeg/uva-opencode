@@ -79,7 +79,7 @@ class Screenshot(unittest.TestCase):
 class ModelCatalog(unittest.TestCase):
     # /v1/models reads opencode.example.json from the image; a missing file crashed the handler.
     def test_catalog_file_loads_with_models(self):
-        self.assertIn('gpt-6-luna', bridge.model_catalog())
+        self.assertIn('gpt-6.1-sol', bridge.model_catalog())
 
     def test_catalog_offers_prompt_mode_tools(self):
         uva = json.loads((bridge.ROOT / 'opencode.example.json').read_text())['providers']['uva']

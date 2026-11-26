@@ -44,27 +44,13 @@ Without `UVA_VNC=1` the container starts no display. It needs the logged-in prof
 ## 3. Point OpenCode or T3 at it
 
 Use an OpenAI-compatible provider with base URL `http://127.0.0.1:8765/v1` and the key
-in `UVA_BRIDGE_KEY` as the API key. The full model list is in
-[`opencode.example.json`](opencode.example.json) (`providers.uva.models`) and is served
-by `/v1/models`.
-
-Two providers cover the two modes the bridge offers:
+in `UVA_BRIDGE_KEY` as the API key. The bridge serves one model, the experimental
+prompt-tools seat:
 
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
   "provider": {
-    "uva": {
-      "npm": "@ai-sdk/openai-compatible",
-      "name": "UvA AI Chat",
-      "options": {
-        "baseURL": "http://127.0.0.1:8765/v1",
-        "apiKey": "{env:UVA_BRIDGE_KEY}"
-      },
-      "models": {
-        "gpt-6-luna": { "name": "UvA GPT 6 Luna", "tool_call": false, "limit": { "context": 32000, "output": 4096 } }
-      }
-    },
     "uva-tools": {
       "npm": "@ai-sdk/openai-compatible",
       "name": "UvA AI Chat prompt tools (experimental)",
@@ -73,15 +59,15 @@ Two providers cover the two modes the bridge offers:
         "apiKey": "{env:UVA_BRIDGE_KEY}"
       },
       "models": {
-        "gpt-6.1-sol": { "name": "UvA GPT 6.1 Sol (tools)", "tool_call": true, "limit": { "context": 32000, "output": 4096 } }
+        "gpt-6.1-sol": { "name": "UvA GPT 6.1 Sol (tools, experimental)", "tool_call": true, "limit": { "context": 32000, "output": 4096 } }
       }
     }
   }
 }
 ```
 
-`uva` is plain chat: no tool envelope, so it is cheaper. `uva-tools` is the experimental
-prompt-tools mode.
+A request that carries tools uses the prompt-tools transport below; a request without
+tools is plain text.
 
 ## How the prompt-tools mode works
 

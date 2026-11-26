@@ -26,7 +26,7 @@ from runtime_paths import ROOT, STATE
 # Laptop defaults. A container can override these with environment variables (see README.md).
 ALLOWED_HOSTS = set(os.environ.get('UVA_ALLOWED_HOSTS', '127.0.0.1:8765,localhost:8765').split(','))
 BIND = os.environ.get('UVA_BIND', '127.0.0.1')
-DEFAULT_MODEL = 'gpt-6-luna'
+DEFAULT_MODEL = 'gpt-6.1-sol'
 # UvA's window is 32k and every turn re-sends the conversation. Prompt mode sends at
 # most this much of it, and trims each tool result to its head and tail. Set
 # UVA_MAX_CONVERSATION_TOKENS or UVA_MAX_TOOL_RESULT_CHARS to 0 to disable that cap.
