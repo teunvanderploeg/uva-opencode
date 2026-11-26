@@ -77,6 +77,13 @@ Later launches reuse your saved login. OpenCode uses its own isolated configurat
 
 If your login expires, finish sign-in again and retry the request.
 
+## Run the bridge in a container
+
+For a server, VM, or any host without a desktop, run the bridge in Docker. It starts a
+virtual screen for the one-time UvA login (VNC) and then serves the OpenAI-compatible
+endpoint that OpenCode and T3 connect to, including the prompt-tools mode. See
+[docker/README.md](docker/README.md).
+
 ## Context and token usage
 
 The bridge compacts text parts and tool argument encoding while preserving message
