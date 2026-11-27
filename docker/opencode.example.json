@@ -1,0 +1,42 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "uva/gpt-6.1-sol",
+  "tool_output": {
+    "max_lines": 500,
+    "max_bytes": 16000
+  },
+  "providers": {
+    "uva": {
+      "name": "UvA AI Chat prompt tools, experimental",
+      "env": [
+        "UVA_BRIDGE_KEY"
+      ],
+      "package": "@opencode/ai/providers/openai-compatible",
+      "settings": {
+        "baseURL": "http://127.0.0.1:8765/v1",
+        "encoding": "none"
+      },
+      "body": {
+        "uva_tool_mode": "prompt"
+      },
+      "models": {
+        "gpt-6.1-sol": {
+          "name": "UvA GPT 6.1 Sol (tools, experimental)",
+          "capabilities": {
+            "tools": true,
+            "input": [
+              "text"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "limit": {
+            "context": 32000,
+            "output": 4096
+          }
+        }
+      }
+    }
+  }
+}
