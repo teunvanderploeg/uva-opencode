@@ -65,7 +65,7 @@ class TransportValidation(unittest.TestCase):
             self.assertEqual(result['choices'][0]['message']['tool_calls'][0]['function']['name'], 'read')
             self.assertEqual(request.call_count, 1)
 
-    def test_rejected_reply_start_is_logged_before_repair(self):
+    def test_rejected_reply_is_logged_without_its_text(self):
         import io
         from contextlib import redirect_stderr
         payload = {'messages': [{'role': 'user', 'parts': [{'type': 'text', 'text': 'x'}]}], 'model': 'm'}
@@ -75,8 +75,10 @@ class TransportValidation(unittest.TestCase):
                 [{'type': 'text-delta', 'delta': json.dumps({'content': 'ok', 'tool_calls': []})}],
         ]), redirect_stderr(log):
             bridge.prompt_response(payload)
-        self.assertIn("chat reply rejected: 'PLAN. prose instead of the envelope' (events: text-delta)",
-                      log.getvalue())
+        value = log.getvalue()
+        self.assertIn('chat reply rejected: ', value)
+        self.assertIn('(events: text-delta)', value)
+        self.assertNotIn('PLAN', value)
 
     def test_empty_reply_logs_the_event_types_it_received(self):
         import io
@@ -88,7 +90,7 @@ class TransportValidation(unittest.TestCase):
                 [{'type': 'text-delta', 'delta': json.dumps({'content': 'ok', 'tool_calls': []})}],
         ]), redirect_stderr(log):
             bridge.prompt_response(payload)
-        self.assertIn("chat reply rejected: '' (events: finish,start)", log.getvalue())
+        self.assertIn('0 characters (events: finish,start)', log.getvalue())
 
     def test_repair_echoes_only_the_start_of_a_long_reply(self):
         with patch.object(bridge, 'upstream', side_effect=[
@@ -270,8 +272,8 @@ class TransportValidation(unittest.TestCase):
             {'role': 'tool', 'tool_call_id': 'original', 'content': 'PRIVATE_RESULT'}])
         before = bridge.input_breakdown(body, 'prompt')
         self.assertEqual(len(before), 5)
-        self.assertEqual(before['client_instructions'], 0)
-        self.assertTrue(all(value > 0 for key, value in before.items() if key != 'client_instructions'))
+        self.assertGreater(before['client_instructions'], 0)
+        self.assertTrue(all(value > 0 for value in before.values()))
         body['messages'][-1]['content'] = '🦀' * 3000
         after = bridge.input_breakdown(body, 'prompt')
         self.assertGreater(after['tool_results'], before['tool_results'])
@@ -289,7 +291,7 @@ class TransportValidation(unittest.TestCase):
         self.assertNotIn('PRIVATE_', json.dumps(stats))
         self.assertEqual(bridge.input_breakdown(dict(body, tools=[]), 'native')['adapter_instructions'], 0)
 
-    def test_prompt_mode_drops_client_system_instructions(self):
+    def test_prompt_mode_preserves_client_system_instructions(self):
         body = dict(self.body, messages=[
             {'role': 'system', 'content': 'PRIVATE_SYSTEM'},
             {'role': 'user', 'content': 'do it'}])
@@ -297,9 +299,27 @@ class TransportValidation(unittest.TestCase):
                 {'type': 'text-delta', 'delta': json.dumps({'content': 'ok', 'tool_calls': []})}]) as request:
             bridge.completion(body)
         payload = request.call_args.args[0]
-        self.assertNotIn('PRIVATE_SYSTEM', json.dumps(payload))
+        self.assertIn('PRIVATE_SYSTEM', payload['systemPrompt'])
         self.assertIn('unattended', payload['systemPrompt'])
-        self.assertEqual(bridge.input_breakdown(body, 'prompt')['client_instructions'], 0)
+        self.assertGreater(bridge.input_breakdown(body, 'prompt')['client_instructions'], 0)
+
+    def test_client_instructions_are_preserved_and_budgeted(self):
+        text, omitted = bridge.client_instructions({'messages': [
+            {'role': 'system', 'content': 'Keep these rules.'},
+            {'role': 'user', 'content': 'do it'}]})
+        self.assertEqual(text, 'Keep these rules.')
+        self.assertEqual(omitted, 0)
+        long = 'x' * (bridge.MAX_INSTRUCTIONS_CHARS + 10000)
+        trimmed, cut = bridge.client_instructions({'messages': [{'role': 'system', 'content': long}]})
+        self.assertGreater(cut, 0)
+        self.assertLess(len(trimmed), len(long))
+        self.assertIn('client instructions omitted', trimmed)
+        self.assertTrue(trimmed.endswith('x'))
+
+    def test_prompt_over_the_window_fails_with_a_clear_error(self):
+        body = dict(self.body, messages=[{'role': 'user', 'content': 'x' * 100000}])
+        with self.assertRaisesRegex(ValueError, 'over the UvA model window'):
+            bridge.completion(body)
 
     def test_no_tools_uses_plain_text_without_an_envelope(self):
         body = {'model': 'gpt-6.1-sol', 'messages': [

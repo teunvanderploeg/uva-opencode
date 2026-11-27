@@ -15,10 +15,16 @@ docker build -t uva-bridge docker/
 
 ## 1. Log in once (needs a screen)
 
-The UvA login is a visible browser window with MFA. Run the VNC mode for that one step:
+The UvA login is a visible browser window with MFA. Run the VNC mode for that one step.
+The login ports are bound to the host loopback only; on a remote host, forward them over
+SSH first:
 
 ```sh
-docker run --rm -it -p 6080:6080 -p 8765:8765 \
+ssh -L 6080:localhost:6080 -L 8765:localhost:8765 user@host
+```
+
+```sh
+docker run --rm -it -p 127.0.0.1:6080:6080 -p 127.0.0.1:8765:8765 \
   -e UVA_BRIDGE_KEY="$(openssl rand -hex 32)" \
   -e UVA_VNC=1 -e VNC_PASSWORD='choose-8-chars' \
   -v uva-profile:/data \
@@ -26,8 +32,10 @@ docker run --rm -it -p 6080:6080 -p 8765:8765 \
 ```
 
 Open http://localhost:6080/vnc.html, connect with the VNC password, sign in to
-`aichat.uva.nl`, complete MFA, and leave the window open. Stop the container when the
-bridge logs `UvA bridge on 0.0.0.0:8765`. The profile stays in the `uva-profile` volume.
+`aichat.uva.nl`, and complete MFA. Wait until the browser has finished the login and
+switched to headless: `GET /health` with the `UVA_BRIDGE_KEY` returns `"ready": true`.
+The startup log line appears before that, so do not use it as the stop signal. Then stop
+the container; the profile stays in the `uva-profile` volume.
 
 ## 2. Run headless
 
@@ -79,9 +87,9 @@ looping:
   description`, not the full JSON schema (the schemas for a ~78-tool client were ~52k
   tokens, over the 32k window). Only a core set (`UVA_CORE_TOOLS`) is listed when the
   client offers one; validation still accepts every tool the client sent.
-- **Client system text is dropped.** The base prompt and instruction files do not fit
-  the 32k window with the task and tool results, so the transport instructions carry the
-  protocol. The plain path keeps the client system text.
+- **Client instructions are kept, budgeted.** The client's system/developer text (for
+  example which files may be sent to the provider) is sent alongside the transport prompt,
+  capped to `UVA_MAX_INSTRUCTIONS_CHARS` with the head and tail kept.
 - **Conversation and tool results are capped.** The bridge keeps the task plus the newest
   turns, and trims each tool result to its head and tail with a marker naming the omitted
   count, so command output does not crowd out the reply.
@@ -106,6 +114,8 @@ Tools run in the client, never in the bridge. A request without tools is plain t
 | `UVA_CHROME_SANDBOX` | `0` in the image | Chromium sandbox off, because the non-root container lacks user namespaces. |
 | `UVA_MAX_CONVERSATION_TOKENS` | `16000` | Prompt mode keeps at most this much of the conversation; `0` disables the cap. |
 | `UVA_MAX_TOOL_RESULT_CHARS` | `8000` | Each tool result is trimmed to its head and tail; `0` disables the cap. |
+| `UVA_MAX_INSTRUCTIONS_CHARS` | `24000` | Prompt mode keeps the client's system/developer text up to this many characters; `0` disables the cap. |
+| `UVA_MODEL_WINDOW_TOKENS` | `32000` | A prompt estimated over this fails with a clear error instead of being truncated upstream. |
 | `UVA_UPSTREAM_ATTEMPTS` | `2` | Total attempts for a transient bare UvA error (`1` disables the retry). |
 | `UVA_UPSTREAM_RETRY_SECONDS` | `5` | Pause before the one retry above. |
 | `UVA_CORE_TOOLS` | `bash,read,write,edit,glob,grep,webfetch` | Core tool set listed in prompt mode. |

@@ -288,3 +288,13 @@ class UpstreamRetry(unittest.TestCase):
                 patch.object(bridge.time, 'sleep'):
             bridge.upstream({'model': 'm'})
         self.assertEqual(browser.request.call_count, 1)
+
+
+class BrowserEventFilter(unittest.TestCase):
+    def test_usage_fields_survive_the_filter(self):
+        # The browser adapter filters SSE events before they reach the handler;
+        # usage/totalUsage must pass through so the bridge reports real token counts
+        # instead of estimates.
+        import browser_session
+        self.assertIn("'usage'", browser_session.FETCH)
+        self.assertIn("'totalUsage'", browser_session.FETCH)

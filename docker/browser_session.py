@@ -27,11 +27,12 @@ FETCH = """async ({endpoint, payload}) => {
      const body = (await response.text()).slice(0, 400);
      return {status:response.status, events:[{type:'error', code:response.status, message:body}]};
    }
-   const events = [];
-   // Keep the error fields: UvA reports a refusal or backend failure as an error
-   // event, and dropping its message leaves only "UvA returned an error event".
-   const allowed = ['type','delta','toolCallId','toolName','input','finishReason',
-     'message','error','code','detail','status'];
+    const events = [];
+    // Keep the error fields: UvA reports a refusal or backend failure as an error
+    // event, and dropping its message leaves only "UvA returned an error event".
+    // usage/totalUsage carry the provider's token counts when present.
+    const allowed = ['type','delta','toolCallId','toolName','input','finishReason',
+      'message','error','code','detail','status','usage','totalUsage'];
    for (const line of (await response.text()).split('\\n')) {
      if (!line.startsWith('data:') || line.slice(5).trim() === '[DONE]') continue;
      const event = JSON.parse(line.slice(5));
@@ -93,13 +94,56 @@ class BrowserSession:
         self.error = None
         self.jobs = queue.Queue()
         self.stop_event = threading.Event()
+        self._lock_handle = None
         self.thread = threading.Thread(target=self.supervise, name='uva-browser', daemon=True)
 
     def start(self):
         self.profile.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.profile.chmod(0o700)
-        clear_stale_profile_locks(self.profile)
-        self.thread.start()
+        self._lock_handle = self._acquire_profile_lock()
+        try:
+            clear_stale_profile_locks(self.profile)
+            self.thread.start()
+        except Exception:
+            self._release_profile_lock()
+            raise
+
+    def _acquire_profile_lock(self):
+        # One browser owns the profile volume. Hold an exclusive lock on it for the
+        # browser's whole lifetime, so a second container that shares the mount cannot
+        # clean (and then open) the first container's live Chromium profile.
+        lock_path = self.profile.parent / 'browser.lock'
+        handle = lock_path.open('a+b')
+        try:
+            if os.name == 'nt':
+                import msvcrt
+                if lock_path.stat().st_size == 0:
+                    handle.write(b'0'); handle.flush()
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        except Exception:
+            handle.close()
+            raise
+        return handle
+
+    def _release_profile_lock(self):
+        handle = self._lock_handle
+        self._lock_handle = None
+        if handle is None:
+            return
+        try:
+            if os.name == 'nt':
+                import msvcrt
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            handle.close()
 
     def status(self):
         return {'ready': self.state == 'ready', 'browser_state': self.state, 'browser_error': self.error}
@@ -109,7 +153,13 @@ class BrowserSession:
             raise ValueError('UvA login is required. Complete the login window, then retry.')
         future = Future()
         self.jobs.put((future, payload, endpoint))
-        return future.result(timeout=145)
+        try:
+            return future.result(timeout=145)
+        except BaseException:
+            # The caller gave up: cancel the job so the worker skips it instead of
+            # sending it upstream after the client is gone.
+            future.cancel()
+            raise
 
     def screenshot(self):
         # The logged-in browser is headless, so this is the only way to see its page.
@@ -117,7 +167,11 @@ class BrowserSession:
             raise ValueError('UvA login is required. Complete the login window, then retry.')
         future = Future()
         self.jobs.put((future, {'__screenshot__': True}, 'screenshot'))
-        return future.result(timeout=30)
+        try:
+            return future.result(timeout=30)
+        except BaseException:
+            future.cancel()
+            raise
 
     def supervise(self):
         # An error used to end the browser for good, leaving no login window. Start it again instead,
@@ -133,6 +187,7 @@ class BrowserSession:
     def close(self):
         self.stop_event.set()
         self.thread.join(timeout=5)
+        self._release_profile_lock()
 
     def run(self):
         context = None

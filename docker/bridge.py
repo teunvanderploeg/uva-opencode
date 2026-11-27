@@ -14,6 +14,7 @@ import json
 import os
 import re
 import secrets
+import signal
 import sys
 import threading
 import time
@@ -33,6 +34,12 @@ DEFAULT_MODEL = 'gpt-6.1-sol'
 # See README.md.
 MAX_CONVERSATION_TOKENS = int(os.environ.get('UVA_MAX_CONVERSATION_TOKENS', '16000'))
 MAX_TOOL_RESULT_CHARS = int(os.environ.get('UVA_MAX_TOOL_RESULT_CHARS', '8000'))
+# The client's system/developer instructions (which files may be sent, project rules)
+# are kept in prompt mode, capped to this many characters; 0 disables the cap.
+MAX_INSTRUCTIONS_CHARS = int(os.environ.get('UVA_MAX_INSTRUCTIONS_CHARS', '24000'))
+# The UvA models accept a 32k context. A prompt that still exceeds it after the caps
+# fails with a clear error instead of being truncated upstream.
+MODEL_WINDOW_TOKENS = int(os.environ.get('UVA_MODEL_WINDOW_TOKENS', '32000'))
 # UvA sometimes answers a tool-bearing prompt with a bare error event and the same
 # request succeeds on a later attempt. One retry here saves the client a whole round
 # trip; set UVA_UPSTREAM_ATTEMPTS=1 to disable it. See README.md.
@@ -333,11 +340,10 @@ def capped_conversation(messages, budget=None):
 
 
 def shim_messages(body):
-    # UvA accepts systemPrompt separately, not system-role UI messages. Prompt mode
-    # drops the client's system/developer text (the base prompt and instruction files):
-    # it is not task-specific and does not fit the 32k window with the task and tool
-    # results. The transport instructions below carry the protocol. The plain path
-    # keeps the client system text.
+    # UvA accepts systemPrompt separately, not system-role UI messages, so the
+    # conversation keeps only user/assistant/tool turns. The client's system/developer
+    # instructions are preserved separately (client_instructions) and sent as part of
+    # the systemPrompt alongside the transport prompt.
     messages = [m for m in normalized_messages(body) if m.get('role') not in ('system', 'developer')]
     if not messages:
         raise ValueError('No user message to send.')
@@ -348,6 +354,25 @@ def shim_messages(body):
                   'window; read a file or rerun a command if you need that detail):'
                   % note['dropped_messages'])
     return ui_messages([{'role': 'user', 'content': header + '\n' + compact_json(messages)}]), note
+
+
+def client_instructions(body):
+    # Keep the client's system/developer text in prompt mode: it carries the rules the
+    # model must follow (for example which files may be sent to the provider). It is
+    # capped, head and tail kept, so it does not crowd out the transport prompt.
+    text = '\n\n'.join(str(m.get('content') or '') for m in normalized_messages(body)
+                       if m.get('role') in ('system', 'developer'))
+    text = text.strip()
+    if not text:
+        return '', 0
+    budget = MAX_INSTRUCTIONS_CHARS
+    if budget <= 0 or len(text) <= budget:
+        return text, 0
+    head = budget * 2 // 3
+    tail = budget - head
+    omitted = len(text) - head - tail
+    return (text[:head] + '\n[bridge: %d characters of client instructions omitted; '
+            'raise UVA_MAX_INSTRUCTIONS_CHARS to keep more]\n' % omitted + text[-tail:]), omitted
 
 
 def estimate_tokens(text):
@@ -372,8 +397,9 @@ def input_breakdown(body, mode):
                   client_instructions=0, conversation=0, tool_results=0)
     for message in normalized_messages(body):
         role = message.get('role')
-        if mode == 'prompt' and role in ('system', 'developer'):
-            continue  # not sent in prompt mode (see shim_messages)
+        if role in ('system', 'developer'):
+            result['client_instructions'] += estimate_tokens(compact_json(message))
+            continue
         key = 'tool_results' if role == 'tool' else 'conversation'
         result[key] += estimate_tokens(compact_json(message))
     tools = body.get('tools', [])
@@ -456,13 +482,12 @@ def prompt_response(payload, calls=None):
     raw = text_of(events)
     try:
         return transport_object(raw), events, False, *response_usage(payload, events, raw)
-    except TransportError:
-        # Log the start of the rejected reply so a format failure can be diagnosed. The
-        # text is model output and may echo files the model read, and log readers can see
-        # it, so only the first 300 characters are kept.
-        # Event types are protocol names, not model text, so they are logged in full.
+    except TransportError as error:
+        # Do not echo model output into the container log: a reply can contain source
+        # code, tool output or other workspace data, and logs may be forwarded. Log the
+        # validation reason, the event types and the response length instead.
         kinds = ','.join(sorted({str(e.get('type', '?')) for e in events}))
-        print('chat reply rejected: ' + repr(raw[:300]) + ' (events: ' + (kinds or 'none') + ')',
+        print('chat reply rejected: %s; %d characters (events: %s)' % (error, len(raw), kinds or 'none'),
               file=sys.stderr, flush=True)
         if len(raw) > 100000:
             raise TransportError('Model response was too large to repair. Try a smaller task.') from None
@@ -504,12 +529,22 @@ def completion(body):
     else:
         messages = ui_messages(body['messages'])
     payload = {'messages': messages, 'model': body.get('model', DEFAULT_MODEL)}
+    instructions_trimmed = 0
     if mode == 'prompt':
-        payload['systemPrompt'] = transport_instructions(body)
+        instructions, instructions_trimmed = client_instructions(body)
+        transport = transport_instructions(body)
+        payload['systemPrompt'] = (instructions + '\n\n' + transport) if instructions else transport
     if mode == 'native' and tools:
         payload.update(tools=tools, tool_choice=body.get('tool_choice', 'auto'))
     breakdown = input_breakdown(body, mode)
     initial_input_estimate = request_tokens(payload)
+    if initial_input_estimate > MODEL_WINDOW_TOKENS:
+        raise ValueError('Prompt is ~%d tokens, over the UvA model window of %d. '
+                         'Reduce the task or the client instructions.'
+                         % (initial_input_estimate, MODEL_WINDOW_TOKENS))
+    if instructions_trimmed:
+        print('chat: client instructions trimmed by %d characters (UVA_MAX_INSTRUCTIONS_CHARS=%d)'
+              % (instructions_trimmed, MAX_INSTRUCTIONS_CHARS), file=sys.stderr, flush=True)
     if conversation and (conversation['dropped_messages'] or conversation['trimmed_tool_results']
                          or conversation['over_budget']):
         print('chat: conversation capped: dropped %d messages (~%d tokens), trimmed %d tool results '
@@ -701,6 +736,12 @@ def main():
     server = ThreadingHTTPServer((BIND, 8765), Handler)
     BROWSER = BrowserSession(STATE / 'browser-profile')
     BROWSER.start()
+    # Docker sends SIGTERM to PID 1 (the entrypoint runs Python directly). Route it
+    # through the server shutdown path so BROWSER.close() closes Chromium cleanly;
+    # shutdown() must be called from a thread other than serve_forever().
+    def handle_termination(signum, frame):
+        threading.Thread(target=server.shutdown, daemon=True).start()
+    signal.signal(signal.SIGTERM, handle_termination)
     print('UvA bridge on ' + BIND + ':8765 (tool mode ' + MODE + ').', flush=True)
     try:
         server.serve_forever()
